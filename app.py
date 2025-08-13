@@ -29,7 +29,7 @@ FORM_HTML = """
             let bloc = document.createElement("div");
             bloc.innerHTML = `
                 Número: <input type="number" name="jugador_numero" required>
-                Dorsal: <input type="number" name="jugador_dorsal" required>
+                Dorsal: <input type="text" name="jugador_dorsal" required>
                 Nom: <input type="text" name="jugador_nom" required>
                 Cognoms: <input type="text" name="jugador_cognoms" required>
                 Posició: <input type="text" name="jugador_posicio" required>
