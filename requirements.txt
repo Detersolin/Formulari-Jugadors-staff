@@ -1,6 +1,6 @@
 # Pinned, wheel-available versions to avoid metadata-generation failures
 streamlit==1.36.0
-pandas>=2.2.3,<2.4
+pandas>=2.2.3
 numpy==2.1
 openpyxl==3.1.5
 pillow==10.4.0
