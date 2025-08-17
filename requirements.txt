@@ -1,3 +1,9 @@
+# Pinned, wheel-available versions to avoid metadata-generation failures
 streamlit==1.36.0
 pandas==2.2.2
+numpy==2.0.1
 openpyxl==3.1.5
+pillow==10.4.0
+python-dateutil==2.9.0.post0
+pytz==2024.1
+tzdata==2024.1
