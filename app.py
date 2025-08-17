@@ -30,21 +30,19 @@ with st.sidebar:
     )
     st.caption("(* camps obligatoris)")
 
-   def send_notification(files, notif_to, smtp_server, smtp_port, smtp_user, smtp_pass, use_tls):
+def send_notification(files, notif_to, smtp_server, smtp_port, smtp_user, smtp_pass, use_tls):
     if not notif_to:
         return False, "Sense adreça de correu."
     try:
-        # Validació mínima perquè no intenti enviar sense credencials
-        if not (smtp_user and smtp_pass):
-            return False, "Falten credencials SMTP (usuari i contrasenya d'aplicació)."
-
         msg = EmailMessage()
         msg["Subject"] = "Nova inscripció d'equip de voleibol"
-        msg["From"] = smtp_user            # el From ha de coincidir amb l'usuari autenticat
+
+        if not smtp_user:
+            raise ValueError("Falta SMTP usuari (MAIL FROM).")
+        msg["From"] = smtp_user
         msg["To"] = notif_to
         msg.set_content("S'ha registrat una nova inscripció d'equip. Adjuntes trobes les exportacions.")
 
-        # Adjunts
         for f in files:
             try:
                 with open(f, "rb") as fh:
@@ -58,17 +56,13 @@ with st.sidebar:
             except Exception as e:
                 st.warning(f"No s'ha pogut adjuntar {f}: {e}")
 
-        # Connexió SMTP
-        smtp_port = int(smtp_port)
         if use_tls:
-            server = smtplib.SMTP(smtp_server, smtp_port, timeout=30)
-            server.ehlo()
+            server = smtplib.SMTP(smtp_server, int(smtp_port))
             server.starttls()
-            server.ehlo()
         else:
-            server = smtplib.SMTP_SSL(smtp_server, smtp_port, timeout=30)
-
-        server.login(smtp_user, smtp_pass)
+            server = smtplib.SMTP_SSL(smtp_server, int(smtp_port))
+        if smtp_user and smtp_pass:
+            server.login(smtp_user, smtp_pass)
         server.send_message(msg)
         server.quit()
         return True, "Correu enviat correctament."
