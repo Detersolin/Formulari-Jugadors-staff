@@ -174,7 +174,9 @@ def send_notification(files, notif_to, smtp_server, smtp_port, smtp_user, smtp_p
     try:
         msg = EmailMessage()
         msg["Subject"] = "Nova inscripció d'equip de voleibol"
-        msg["From"] = smtp_user or "noreply@example.com"
+       if not smtp_user:
+    raise ValueError("Falta SMTP usuari (MAIL FROM).")
+msg["From"] = smtp_user
         msg["To"] = notif_to
         msg.set_content("S'ha registrat una nova inscripció d'equip. Adjuntes trobes les exportacions.")
 
