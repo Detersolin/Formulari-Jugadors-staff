@@ -30,20 +30,51 @@ with st.sidebar:
     )
     st.caption("(* camps obligatoris)")
 
-    st.markdown("---")
-    st.header("✉️ Enviament per correu (opcional)")
-    send_email = st.checkbox("Enviar correu en desar")
-    notif_to = st.text_input("Enviar a (correu)", placeholder="coordinacio@club.cat")
-    smtp_server = st.text_input("SMTP server", value=os.environ.get("SMTP_SERVER","smtp.gmail.com"))
-    smtp_port = st.number_input("Port", value=int(os.environ.get("SMTP_PORT","587")), step=1)
-    smtp_user = st.text_input("SMTP usuari", placeholder=os.environ.get("SMTP_USER","elteuusuari@gmail.com"))
-    smtp_pass = st.text_input("SMTP contrasenya/app password", type="password")
-    use_tls = st.checkbox("Usa TLS", value=True)
+   def send_notification(files, notif_to, smtp_server, smtp_port, smtp_user, smtp_pass, use_tls):
+    if not notif_to:
+        return False, "Sense adreça de correu."
+    try:
+        # Validació mínima perquè no intenti enviar sense credencials
+        if not (smtp_user and smtp_pass):
+            return False, "Falten credencials SMTP (usuari i contrasenya d'aplicació)."
 
-    st.markdown("---")
-    st.header("⚙️ Opcions d'exportació")
-    export_xlsx = st.checkbox("Exporta a Excel (.xlsx)", value=True)
-    export_csv = st.checkbox("Exporta a CSV (jugadors i staff)", value=True)
+        msg = EmailMessage()
+        msg["Subject"] = "Nova inscripció d'equip de voleibol"
+        msg["From"] = smtp_user            # el From ha de coincidir amb l'usuari autenticat
+        msg["To"] = notif_to
+        msg.set_content("S'ha registrat una nova inscripció d'equip. Adjuntes trobes les exportacions.")
+
+        # Adjunts
+        for f in files:
+            try:
+                with open(f, "rb") as fh:
+                    data = fh.read()
+                msg.add_attachment(
+                    data,
+                    maintype="application",
+                    subtype="octet-stream",
+                    filename=os.path.basename(f),
+                )
+            except Exception as e:
+                st.warning(f"No s'ha pogut adjuntar {f}: {e}")
+
+        # Connexió SMTP
+        smtp_port = int(smtp_port)
+        if use_tls:
+            server = smtplib.SMTP(smtp_server, smtp_port, timeout=30)
+            server.ehlo()
+            server.starttls()
+            server.ehlo()
+        else:
+            server = smtplib.SMTP_SSL(smtp_server, smtp_port, timeout=30)
+
+        server.login(smtp_user, smtp_pass)
+        server.send_message(msg)
+        server.quit()
+        return True, "Correu enviat correctament."
+    except Exception as e:
+        return False, f"No s'ha pogut enviar el correu: {e}"
+
 
 # ---------- Jugadors ----------
 st.markdown("### 👥 Jugadors")
