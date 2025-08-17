@@ -5,67 +5,31 @@ import traceback
 from email.message import EmailMessage
 from datetime import datetime
 from pathlib import Path
-
 import pandas as pd
 import streamlit as st
 from streamlit import column_config as cc
 
-# ---------- Render-friendly server settings ----------
-st.set_page_config(page_title="Inscripció d'equips de voleibol", page_icon="🏐", layout="wide")
+# ---------- Config ----------
+st.set_page_config(page_title="Informació equips streaming", page_icon="📺", layout="wide")
 
-# Base dir is the directory where this app.py lives
 BASE_DIR = Path(__file__).resolve().parent
 OUTPUT_DIR = BASE_DIR / "output"
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
-st.title("🏐 Inscripció d'equips de voleibol")
+# ---------- Títol ----------
+st.title("ℹ️ Informació equips per l’streaming del partit")
 
-with st.sidebar:
-    st.header("ℹ️ Informació de l'equip")
-    team_name = st.text_input("Nom de l'equip*", placeholder="Ex.: Club Vòlei Girona")
-    sex = st.selectbox("Sexe*", ["Masculí", "Femení"])
-    category = st.selectbox(
-        "Categoria*",
-        ["SM", "Lliga Hiberdrola", "SM2", "SF2", "1a Nacional"]
-    )
-    st.caption("(* camps obligatoris)")
+# ---------- Informació de l'equip ----------
+st.markdown("### 📝 Informació de l’equip")
+team_name = st.text_input("Nom de l'equip*", placeholder="Ex.: Club Vòlei Girona")
+sex = st.selectbox("Sexe*", ["Masculí", "Femení"])
+category = st.selectbox("Categoria*", ["SM", "Lliga Hiberdrola", "SM2", "SF2", "1a Nacional"])
+st.caption("(* camps obligatoris)")
 
-    st.markdown("---")
-    st.header("✉️ Enviament per correu (opcional)")
-    send_email = st.checkbox("Enviar correu en desar")
-    notif_to = st.text_input("Enviar a (correu)", placeholder="coordinacio@club.cat")
-
-    smtp_server = st.text_input(
-        "SMTP server",
-        value=os.environ.get("SMTP_SERVER", "smtp.gmail.com")
-    )
-    smtp_port = st.number_input(
-        "Port",
-        value=int(os.environ.get("SMTP_PORT", "587")),
-        step=1
-    )
-    smtp_user = st.text_input(
-        "SMTP usuari",
-        value=os.environ.get("SMTP_USER", ""),
-        placeholder="elteuusuari@gmail.com"
-    )
-    smtp_pass = st.text_input(
-        "SMTP contrasenya/app password",
-        value=os.environ.get("SMTP_PASS", ""),
-        type="password"
-    )
-    use_tls = st.checkbox("Usa TLS", value=True)
-
-    st.markdown("---")
-    st.header("⚙️ Opcions d'exportació")
-    export_xlsx = st.checkbox("Exporta a Excel (.xlsx)", value=True)
-    export_csv = st.checkbox("Exporta a CSV (jugadors i staff)", value=True)
-
-# ---------- Jugadors ----------
+# ---------- Taula jugadors ----------
 st.markdown("### 👥 Jugadors")
-
 PLAYER_POSITIONS = ["Col.locador", "Central", "Punta", "Oposat", "Lliure"]
-player_cols = ["Nom", "Cognoms", "Número dorsal", "Nom del dorsal", "Posició"]
+player_cols = ["Nom","Cognoms","Número dorsal","Nom del dorsal","Posició"]
 
 if "players_df" not in st.session_state:
     st.session_state.players_df = pd.DataFrame([{c: "" for c in player_cols}])
@@ -86,10 +50,9 @@ players_df = st.data_editor(
     key="players_editor"
 )
 
-# ---------- Staff ----------
+# ---------- Taula staff ----------
 st.markdown("### 🧑‍💼 Staff")
-
-staff_cols = ["Nom", "Cognoms", "Funció"]
+staff_cols = ["Nom","Cognoms","Funció"]
 
 if "staff_df" not in st.session_state:
     st.session_state.staff_df = pd.DataFrame([{c: "" for c in staff_cols}])
@@ -149,55 +112,52 @@ def export(team_name, sex, category, players_df, staff_df, export_xlsx=True, exp
             df.insert(2, "Categoria", category)
 
     # Excel
-    if export_xlsx:
-        try:
-            xlsx_path = OUTPUT_DIR / f"{base}.xlsx"
-            with pd.ExcelWriter(xlsx_path, engine="openpyxl") as writer:
-                pd.DataFrame(
-                    {"Equip": [team_name], "Sexe": [sex], "Categoria": [category]}
-                ).to_excel(writer, sheet_name="Equip", index=False)
-                (players_df if not players_df.empty else pd.DataFrame(
-                    columns=["Equip", "Sexe", "Categoria", *player_cols]
-                )).to_excel(writer, sheet_name="Jugadors", index=False)
-                (staff_df if not staff_df.empty else pd.DataFrame(
-                    columns=["Equip", "Sexe", "Categoria", *staff_cols]
-                )).to_excel(writer, sheet_name="Staff", index=False)
-            saved.append(str(xlsx_path))
-        except Exception as e:
-            st.error(f"Error exportant Excel: {e}")
-            st.code(traceback.format_exc())
+    try:
+        xlsx_path = OUTPUT_DIR / f"{base}.xlsx"
+        with pd.ExcelWriter(xlsx_path, engine="openpyxl") as writer:
+            pd.DataFrame(
+                {"Equip":[team_name], "Sexe":[sex], "Categoria":[category]}
+            ).to_excel(writer, sheet_name="Equip", index=False)
+            (players_df if not players_df.empty else pd.DataFrame(
+                columns=["Equip","Sexe","Categoria", *player_cols]
+            )).to_excel(writer, sheet_name="Jugadors", index=False)
+            (staff_df if not staff_df.empty else pd.DataFrame(
+                columns=["Equip","Sexe","Categoria", *staff_cols]
+            )).to_excel(writer, sheet_name="Staff", index=False)
+        saved.append(str(xlsx_path))
+    except Exception as e:
+        st.error(f"Error exportant Excel: {e}")
+        st.code(traceback.format_exc())
 
     # CSV
-    if export_csv:
-        try:
-            if not players_df.empty:
-                p_csv = OUTPUT_DIR / f"{base}_jugadors.csv"
-                players_df.to_csv(p_csv, index=False)
-                saved.append(str(p_csv))
-            if not staff_df.empty:
-                s_csv = OUTPUT_DIR / f"{base}_staff.csv"
-                staff_df.to_csv(s_csv, index=False)
-                saved.append(str(s_csv))
-        except Exception as e:
-            st.error(f"Error exportant CSV: {e}")
-            st.code(traceback.format_exc())
+    try:
+        if not players_df.empty:
+            p_csv = OUTPUT_DIR / f"{base}_jugadors.csv"
+            players_df.to_csv(p_csv, index=False)
+            saved.append(str(p_csv))
+        if not staff_df.empty:
+            s_csv = OUTPUT_DIR / f"{base}_staff.csv"
+            staff_df.to_csv(s_csv, index=False)
+            saved.append(str(s_csv))
+    except Exception as e:
+        st.error(f"Error exportant CSV: {e}")
+        st.code(traceback.format_exc())
 
     return saved
 
-def send_notification(files, notif_to, smtp_server, smtp_port, smtp_user, smtp_pass, use_tls):
-    if not notif_to:
-        return False, "Sense adreça de correu."
+def send_notification(files):
+    smtp_server = "smtp.gmail.com"
+    smtp_port = 587
+    smtp_user = os.environ.get("SMTP_USER")
+    smtp_pass = os.environ.get("SMTP_PASS")
+    notif_to = "volei.retransmissions@gmail.com"
+
     try:
         msg = EmailMessage()
-        msg["Subject"] = "Nova inscripció d'equip de voleibol"
-
-        if not smtp_user:
-            raise ValueError("Falta SMTP usuari (MAIL FROM).")
+        msg["Subject"] = "Nova informació d'equip per streaming"
         msg["From"] = smtp_user
         msg["To"] = notif_to
-        msg.set_content(
-            "S'ha registrat una nova inscripció d'equip. Adjuntes trobes les exportacions."
-        )
+        msg.set_content("Nova informació registrada. Adjuntes les exportacions.")
 
         for f in files:
             try:
@@ -212,15 +172,9 @@ def send_notification(files, notif_to, smtp_server, smtp_port, smtp_user, smtp_p
             except Exception as e:
                 st.warning(f"No s'ha pogut adjuntar {f}: {e}")
 
-        smtp_port = int(smtp_port)
-        if use_tls:
-            server = smtplib.SMTP(smtp_server, smtp_port)
-            server.starttls()
-        else:
-            server = smtplib.SMTP_SSL(smtp_server, smtp_port)
-
-        if smtp_user and smtp_pass:
-            server.login(smtp_user, smtp_pass)
+        server = smtplib.SMTP(smtp_server, smtp_port)
+        server.starttls()
+        server.login(smtp_user, smtp_pass)
         server.send_message(msg)
         server.quit()
         return True, "Correu enviat correctament."
@@ -228,7 +182,7 @@ def send_notification(files, notif_to, smtp_server, smtp_port, smtp_user, smtp_p
         return False, f"No s'ha pogut enviar el correu: {e}"
 
 # ---------- Accions ----------
-col1, col2 = st.columns([1, 1])
+col1, col2 = st.columns([1,1])
 with col1:
     save_btn = st.button("💾 Desa equip", type="primary", use_container_width=True)
 with col2:
@@ -238,9 +192,9 @@ with col2:
 import io
 template_buf = io.BytesIO()
 with pd.ExcelWriter(template_buf, engine="openpyxl") as writer:
-    pd.DataFrame(columns=["Equip", "Sexe", "Categoria"]).to_excel(writer, sheet_name="Equip", index=False)
-    pd.DataFrame(columns=["Equip", "Sexe", "Categoria", "Nom", "Cognoms", "Número dorsal", "Nom del dorsal", "Posició"]).to_excel(writer, sheet_name="Jugadors", index=False)
-    pd.DataFrame(columns=["Equip", "Sexe", "Categoria", "Nom", "Cognoms", "Funció"]).to_excel(writer, sheet_name="Staff", index=False)
+    pd.DataFrame(columns=["Equip","Sexe","Categoria"]).to_excel(writer, sheet_name="Equip", index=False)
+    pd.DataFrame(columns=["Equip","Sexe","Categoria","Nom","Cognoms","Número dorsal","Nom del dorsal","Posició"]).to_excel(writer, sheet_name="Jugadors", index=False)
+    pd.DataFrame(columns=["Equip","Sexe","Categoria","Nom","Cognoms","Funció"]).to_excel(writer, sheet_name="Staff", index=False)
 template_buf.seek(0)
 st.download_button(
     "⬇️ Descarrega plantilla Excel buida (3 pestanyes)",
@@ -257,21 +211,18 @@ if save_btn:
             saved_files = export(
                 team_name, sex, category,
                 players_df, staff_df,
-                export_xlsx=export_xlsx, export_csv=export_csv
+                export_xlsx=True, export_csv=True
             )
             if saved_files:
                 st.success("Dades desades correctament:")
                 for f in saved_files:
                     st.write("• ", f)
-                if send_email:
-                    ok, msg = send_notification(
-                        saved_files, notif_to,
-                        smtp_server, smtp_port, smtp_user, smtp_pass, use_tls
-                    )
-                    if ok:
-                        st.info(msg)
-                    else:
-                        st.warning(msg)
+
+                ok, msg = send_notification(saved_files)
+                if ok:
+                    st.info(msg)
+                else:
+                    st.warning(msg)
             else:
                 st.warning("No s'ha desat cap fitxer (comprova que hi hagi dades).")
         except Exception as e:
@@ -282,5 +233,3 @@ if reset_btn:
     st.session_state.players_df = pd.DataFrame([{c: "" for c in player_cols}])
     st.session_state.staff_df = pd.DataFrame([{c: "" for c in staff_cols}])
     st.rerun()
-
-st.caption("💡 Consell: desa un equip, (opcional) envia un correu i prem **Reinicia** per preparar un nou equip.")
