@@ -22,6 +22,7 @@ def show_logo():
     candidates = []
     if env_path:
         candidates.append(Path(env_path))
+
     candidates += [
         BASE_DIR / "static" / "logo.png",
         BASE_DIR / "static" / "logo.jpg",
@@ -32,6 +33,7 @@ def show_logo():
         BASE_DIR / "logo.jpeg",
         BASE_DIR / "Logo VR Bo.png",
     ]
+
     for p in candidates:
         try:
             if p.exists():
@@ -39,7 +41,9 @@ def show_logo():
                 return
         except Exception:
             pass
+
     st.warning("No s'ha trobat el logo. Posa'l com **static/logo.png** o defineix **LOGO_PATH** amb el camí complet al fitxer.")
+
 show_logo()
 
 # ---------- Títol ----------
@@ -81,8 +85,7 @@ players_df = st.data_editor(
     hide_index=True,
     key="players_editor",
 )
-# GUARDA sempre l'editor a l'estat
-st.session_state.players_df = players_df
+st.session_state.players_df = players_df  # guarda l’última edició
 
 # ---------- Staff ----------
 st.markdown("### 🧑‍💼 Staff")
@@ -105,8 +108,7 @@ staff_df = st.data_editor(
     hide_index=True,
     key="staff_editor",
 )
-# GUARDA sempre l'editor a l'estat
-st.session_state.staff_df = staff_df
+st.session_state.staff_df = staff_df  # guarda l’última edició
 
 # ---------- Utilitats ----------
 def slugify(text: str) -> str:
@@ -118,14 +120,16 @@ def validate_team(team_name: str) -> bool:
     return bool(team_name and team_name.strip())
 
 def non_empty_rows_mask(df: pd.DataFrame) -> pd.Series:
+    """Fila no buida si algun camp (després de normalitzar) té text."""
     if df is None or df.empty:
         return pd.Series([], dtype=bool)
     norm = df.fillna("").replace({PLACEHOLDER: ""})
     return norm.apply(lambda r: any(str(x).strip() != "" for x in r), axis=1)
 
 def validate_dropdowns(players_df: pd.DataFrame, staff_df: pd.DataFrame) -> list[str]:
+    """Si una fila té alguna dada, 'Posició'/'Funció' no poden quedar en blanc ni en PLACEHOLDER."""
     errors: list[str] = []
-    # Jugadors: si hi ha alguna dada a la fila, Posició no pot quedar en blanc ni PLACEHOLDER
+    # Jugadors
     if players_df is not None and not players_df.empty:
         m = non_empty_rows_mask(players_df)
         df = players_df.loc[m].copy()
@@ -146,6 +150,7 @@ def validate_dropdowns(players_df: pd.DataFrame, staff_df: pd.DataFrame) -> list
     return errors
 
 def clean_players_df(df: pd.DataFrame) -> pd.DataFrame:
+    """Conserva una fila si algun camp de jugadors té valor real (no buit ni PLACEHOLDER)."""
     cols = ["Nom", "Cognoms", "Número dorsal", "Nom del dorsal", "Posició"]
     if df is None or df.empty:
         return pd.DataFrame(columns=cols)
@@ -154,6 +159,7 @@ def clean_players_df(df: pd.DataFrame) -> pd.DataFrame:
     return df2.loc[keep].reset_index(drop=True)
 
 def clean_staff_df(df: pd.DataFrame) -> pd.DataFrame:
+    """Conserva una fila si algun camp de staff té valor real (no buit ni PLACEHOLDER)."""
     cols = ["Nom", "Cognoms", "Funció"]
     if df is None or df.empty:
         return pd.DataFrame(columns=cols)
@@ -162,12 +168,16 @@ def clean_staff_df(df: pd.DataFrame) -> pd.DataFrame:
     return df2.loc[keep].reset_index(drop=True)
 
 def export(team_name, sex, category):
-    """Exporta usant sempre l'ESTAT actual (no còpies locals)."""
+    """
+    Exporta a UNA sola pestanya 'Dades':
+    - Files meta (Equip/Sexe/Categoria)
+    - Bloc Jugadors
+    - Bloc Staff
+    """
     # Usa sempre l'últim estat (més fiable en Streamlit)
     players_src = st.session_state.get("players_df", pd.DataFrame(columns=player_cols))
     staff_src = st.session_state.get("staff_df", pd.DataFrame(columns=staff_cols))
 
-    # Neteja suau: elimina només files totalment buides (ignorant PLACEHOLDER)
     players_df = clean_players_df(players_src)
     staff_df = clean_staff_df(staff_src)
 
@@ -176,29 +186,50 @@ def export(team_name, sex, category):
     base = f"{slugify(team_name)}_{ts}"
     saved = []
 
-    # Afegeix metadades de l’equip a cada taula
-    for df in (players_df, staff_df):
-        if not df.empty:
-            df.insert(0, "Equip", team_name)
-            df.insert(1, "Sexe", sex)
-            df.insert(2, "Categoria", category)
-
-    # Feedback ràpid de quantes files exportarem
-    st.info(f"Exportant {len(players_df)} jugadors i {len(staff_df)} persones de staff.")
-
     try:
         xlsx_path = OUTPUT_DIR / f"{base}.xlsx"
+
+        blocks = []
+
+        # Meta (3 files: Equip, Sexe, Categoria)
+        meta = pd.DataFrame({
+            "Equip": [team_name],
+            "Sexe": [sex],
+            "Categoria": [category],
+        })
+        blocks.append(meta)
+        blocks.append(pd.DataFrame([{}]))  # línia buida
+
+        # Jugadors
+        if not players_df.empty:
+            players_df_w = players_df.copy()
+            players_df_w.insert(0, "Equip", team_name)
+            players_df_w.insert(1, "Sexe", sex)
+            players_df_w.insert(2, "Categoria", category)
+            blocks.append(pd.DataFrame([{"Equip": "=== JUGADORS ==="}]))
+            blocks.append(players_df_w)
+            blocks.append(pd.DataFrame([{}]))  # separació
+
+        # Staff
+        if not staff_df.empty:
+            staff_df_w = staff_df.copy()
+            staff_df_w.insert(0, "Equip", team_name)
+            staff_df_w.insert(1, "Sexe", sex)
+            staff_df_w.insert(2, "Categoria", category)
+            blocks.append(pd.DataFrame([{"Equip": "=== STAFF ==="}]))
+            blocks.append(staff_df_w)
+
+        final_df = pd.concat(blocks, ignore_index=True)
+
+        # Feedback ràpid
+        st.info(f"Exportant {len(players_df)} jugadors i {len(staff_df)} persones de staff en una sola pestanya.")
+
+        # Escriu única pestanya
         with pd.ExcelWriter(xlsx_path, engine="openpyxl") as writer:
-            pd.DataFrame({"Equip": [team_name], "Sexe": [sex], "Categoria": [category]}).to_excel(
-                writer, sheet_name="Equip", index=False
-            )
-            (players_df if not players_df.empty else pd.DataFrame(
-                columns=["Equip", "Sexe", "Categoria", *player_cols]
-            )).to_excel(writer, sheet_name="Jugadors", index=False)
-            (staff_df if not staff_df.empty else pd.DataFrame(
-                columns=["Equip", "Sexe", "Categoria", *staff_cols]
-            )).to_excel(writer, sheet_name="Staff", index=False)
+            final_df.to_excel(writer, sheet_name="Dades", index=False)
+
         saved.append(str(xlsx_path))
+
     except Exception as e:
         st.error(f"Error exportant Excel: {e}")
         st.code(traceback.format_exc())
@@ -219,7 +250,7 @@ def send_notification(files, team_name, sex, category):
         msg["To"] = notif_to
         msg.set_content(
             f"S'ha registrat informació per streaming de l'equip '{team_name}' "
-            f"({sex}, {category}). Adjunt l'Excel amb totes les dades."
+            f"({sex}, {category}). Adjunt l'Excel amb totes les dades a una sola pestanya."
         )
 
         for f in files:
