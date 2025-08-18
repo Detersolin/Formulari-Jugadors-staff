@@ -22,7 +22,6 @@ def show_logo():
     candidates = []
     if env_path:
         candidates.append(Path(env_path))
-
     candidates += [
         BASE_DIR / "static" / "logo.png",
         BASE_DIR / "static" / "logo.jpg",
@@ -33,7 +32,6 @@ def show_logo():
         BASE_DIR / "logo.jpeg",
         BASE_DIR / "Logo VR Bo.png",
     ]
-
     for p in candidates:
         try:
             if p.exists():
@@ -41,9 +39,7 @@ def show_logo():
                 return
         except Exception:
             pass
-
     st.warning("No s'ha trobat el logo. Posa'l com **static/logo.png** o defineix **LOGO_PATH** amb el camí complet al fitxer.")
-
 show_logo()
 
 # ---------- Títol ----------
@@ -58,15 +54,12 @@ category = st.radio("Categoria", ["SM", "Lliga Hiberdrola", "SM2", "SF2", "1a Na
 
 st.caption("(* camps obligatoris)")
 
-# ---------- Pista per als desplegables de la taula ----------
-st.info("Per omplir **Posició** i **Funció**, clica la cel·la i fes servir el desplegable ▾.", icon="➡️")
-
-# ---------- Constants ----------
+# ---------- Pista per als desplegables ----------
 PLACEHOLDER = "— Tria —"
+st.info("Per omplir **Posició** i **Funció**, clica la cel·la i fes servir el desplegable ▾.", icon="➡️")
 
 # ---------- Jugadors ----------
 st.markdown("### 👥 Jugadors")
-
 PLAYER_POSITIONS = [PLACEHOLDER, "Col·locador", "Central", "Punta", "Oposat", "Lliure"]
 player_cols = ["Nom", "Cognoms", "Número dorsal", "Nom del dorsal", "Posició"]
 
@@ -88,21 +81,12 @@ players_df = st.data_editor(
     hide_index=True,
     key="players_editor",
 )
-# guarda el que s'ha editat
+# GUARDA sempre l'editor a l'estat
 st.session_state.players_df = players_df
 
 # ---------- Staff ----------
 st.markdown("### 🧑‍💼 Staff")
-
-STAFF_ROLES = [
-    PLACEHOLDER,
-    "Entrenador principal",
-    "Segon entrenador",
-    "Preparador físic",
-    "Fisioterapeuta",
-    "Delegat",
-    "Altres",
-]
+STAFF_ROLES = [PLACEHOLDER, "Entrenador principal", "Segon entrenador", "Preparador físic", "Fisioterapeuta", "Delegat", "Altres"]
 staff_cols = ["Nom", "Cognoms", "Funció"]
 
 if "staff_df" not in st.session_state:
@@ -121,7 +105,7 @@ staff_df = st.data_editor(
     hide_index=True,
     key="staff_editor",
 )
-# guarda el que s'ha editat
+# GUARDA sempre l'editor a l'estat
 st.session_state.staff_df = staff_df
 
 # ---------- Utilitats ----------
@@ -134,16 +118,14 @@ def validate_team(team_name: str) -> bool:
     return bool(team_name and team_name.strip())
 
 def non_empty_rows_mask(df: pd.DataFrame) -> pd.Series:
-    """Fila no buida si algun camp (després de normalitzar) té text."""
     if df is None or df.empty:
         return pd.Series([], dtype=bool)
     norm = df.fillna("").replace({PLACEHOLDER: ""})
     return norm.apply(lambda r: any(str(x).strip() != "" for x in r), axis=1)
 
 def validate_dropdowns(players_df: pd.DataFrame, staff_df: pd.DataFrame) -> list[str]:
-    """Si una fila té alguna dada, 'Posició'/'Funció' no poden quedar en blanc ni en PLACEHOLDER."""
     errors: list[str] = []
-    # Jugadors
+    # Jugadors: si hi ha alguna dada a la fila, Posició no pot quedar en blanc ni PLACEHOLDER
     if players_df is not None and not players_df.empty:
         m = non_empty_rows_mask(players_df)
         df = players_df.loc[m].copy()
@@ -164,7 +146,6 @@ def validate_dropdowns(players_df: pd.DataFrame, staff_df: pd.DataFrame) -> list
     return errors
 
 def clean_players_df(df: pd.DataFrame) -> pd.DataFrame:
-    """Conserva una fila si algun camp de jugadors té valor real (no buit ni PLACEHOLDER)."""
     cols = ["Nom", "Cognoms", "Número dorsal", "Nom del dorsal", "Posició"]
     if df is None or df.empty:
         return pd.DataFrame(columns=cols)
@@ -173,7 +154,6 @@ def clean_players_df(df: pd.DataFrame) -> pd.DataFrame:
     return df2.loc[keep].reset_index(drop=True)
 
 def clean_staff_df(df: pd.DataFrame) -> pd.DataFrame:
-    """Conserva una fila si algun camp de staff té valor real (no buit ni PLACEHOLDER)."""
     cols = ["Nom", "Cognoms", "Funció"]
     if df is None or df.empty:
         return pd.DataFrame(columns=cols)
@@ -181,21 +161,30 @@ def clean_staff_df(df: pd.DataFrame) -> pd.DataFrame:
     keep = df2[cols].apply(lambda r: any(str(x).strip() != "" for x in r), axis=1)
     return df2.loc[keep].reset_index(drop=True)
 
-def export(team_name, sex, category, players_df, staff_df):
-    # nom del fitxer: <equip>_<timestamp>.xlsx
+def export(team_name, sex, category):
+    """Exporta usant sempre l'ESTAT actual (no còpies locals)."""
+    # Usa sempre l'últim estat (més fiable en Streamlit)
+    players_src = st.session_state.get("players_df", pd.DataFrame(columns=player_cols))
+    staff_src = st.session_state.get("staff_df", pd.DataFrame(columns=staff_cols))
+
+    # Neteja suau: elimina només files totalment buides (ignorant PLACEHOLDER)
+    players_df = clean_players_df(players_src)
+    staff_df = clean_staff_df(staff_src)
+
+    # Nom del fitxer: <equip>_<timestamp>.xlsx
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     base = f"{slugify(team_name)}_{ts}"
     saved = []
 
-    players_df = clean_players_df(players_df)
-    staff_df = clean_staff_df(staff_df)
-
-    # Afegir metadades de l’equip
+    # Afegeix metadades de l’equip a cada taula
     for df in (players_df, staff_df):
         if not df.empty:
             df.insert(0, "Equip", team_name)
             df.insert(1, "Sexe", sex)
             df.insert(2, "Categoria", category)
+
+    # Feedback ràpid de quantes files exportarem
+    st.info(f"Exportant {len(players_df)} jugadors i {len(staff_df)} persones de staff.")
 
     try:
         xlsx_path = OUTPUT_DIR / f"{base}.xlsx"
@@ -235,17 +224,14 @@ def send_notification(files, team_name, sex, category):
 
         for f in files:
             if str(f).lower().endswith(".xlsx"):
-                try:
-                    with open(f, "rb") as fh:
-                        data = fh.read()
-                    msg.add_attachment(
-                        data,
-                        maintype="application",
-                        subtype="vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                        filename=os.path.basename(f),  # ja inclou el nom de l'equip
-                    )
-                except Exception as e:
-                    st.warning(f"No s'ha pogut adjuntar {f}: {e}")
+                with open(f, "rb") as fh:
+                    data = fh.read()
+                msg.add_attachment(
+                    data,
+                    maintype="application",
+                    subtype="vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    filename=os.path.basename(f),
+                )
 
         server = smtplib.SMTP(smtp_server, smtp_port)
         server.starttls()
@@ -256,14 +242,14 @@ def send_notification(files, team_name, sex, category):
     except Exception as e:
         return False, f"No s'ha pogut enviar el correu: {e}"
 
-# ---------- Comptadors útils ----------
+# ---------- Comptadors ----------
 def active_count(df: pd.DataFrame) -> int:
     if df is None or df.empty:
         return 0
     return int(non_empty_rows_mask(df).sum())
 
-st.caption(f"👥 Jugadors actius: {active_count(players_df)}")
-st.caption(f"🧑‍💼 Staff actiu: {active_count(staff_df)}")
+st.caption(f"👥 Jugadors actius: {active_count(st.session_state.players_df)}")
+st.caption(f"🧑‍💼 Staff actiu: {active_count(st.session_state.staff_df)}")
 
 # ---------- Accions ----------
 col1, col2 = st.columns([1, 1])
@@ -272,7 +258,7 @@ with col1:
         "💾 Desa equip",
         type="primary",
         use_container_width=True,
-        disabled=not (team_name or "").strip(),  # desactivat si no hi ha nom
+        disabled=not (team_name or "").strip(),
     )
 with col2:
     reset_btn = st.button("🧹 Reinicia formulari (nou equip)", use_container_width=True)
@@ -281,20 +267,18 @@ if save_btn:
     if not validate_team(team_name):
         st.error("Cal indicar el **Nom de l'equip**.")
     else:
-        # Validació desplegables
-        errors = validate_dropdowns(players_df, staff_df)
+        errors = validate_dropdowns(st.session_state.players_df, st.session_state.staff_df)
         if errors:
             for e in errors:
                 st.error(e)
             st.stop()
 
         try:
-            saved_files = export(team_name, sex, category, players_df, staff_df)
+            saved_files = export(team_name, sex, category)
             if saved_files:
                 st.success("Dades desades correctament:")
                 for f in saved_files:
                     st.write("• ", f)
-
                 with st.spinner("Enviant correu..."):
                     ok, msg = send_notification(saved_files, team_name, sex, category)
                 if ok:
