@@ -16,19 +16,28 @@ BASE_DIR = Path(__file__).resolve().parent
 OUTPUT_DIR = BASE_DIR / "output"
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
+# ---------- Logo ----------
+LOGO_PATH = BASE_DIR / "static" / "logo.png"
+if LOGO_PATH.exists():
+    st.image(str(LOGO_PATH), width=200)
+
 # ---------- Títol ----------
 st.title("ℹ️ Informació equips per l’streaming del partit")
 
-# ---------- Informació de l'equip ----------
+# ---------- Informació de l’equip ----------
 st.markdown("### 📝 Informació de l’equip")
 team_name = st.text_input("Nom de l'equip*", placeholder="Ex.: Club Vòlei Girona")
 sex = st.selectbox("Sexe*", ["Masculí", "Femení"])
-category = st.selectbox("Categoria*", ["SM", "Lliga Hiberdrola", "SM2", "SF2", "1a Nacional"])
+category = st.selectbox(
+    "Categoria*",
+    ["SM", "Lliga Hiberdrola", "SM2", "SF2", "1a Nacional"]
+)
 st.caption("(* camps obligatoris)")
 
-# ---------- Taula jugadors ----------
+# ---------- Jugadors ----------
 st.markdown("### 👥 Jugadors")
-PLAYER_POSITIONS = ["Col.locador", "Central", "Punta", "Oposat", "Lliure"]
+
+PLAYER_POSITIONS = ["Col·locador", "Central", "Punta", "Oposat", "Lliure"]
 player_cols = ["Nom", "Cognoms", "Número dorsal", "Nom del dorsal", "Posició"]
 
 if "players_df" not in st.session_state:
@@ -50,8 +59,9 @@ players_df = st.data_editor(
     key="players_editor"
 )
 
-# ---------- Taula staff ----------
+# ---------- Staff ----------
 st.markdown("### 🧑‍💼 Staff")
+
 staff_cols = ["Nom", "Cognoms", "Funció"]
 
 if "staff_df" not in st.session_state:
@@ -104,7 +114,7 @@ def export(team_name, sex, category, players_df, staff_df):
     players_df = clean_df(players_df.copy())
     staff_df = clean_df(staff_df.copy())
 
-    # Add team meta
+    # Afegir metadades de l’equip
     for df in (players_df, staff_df):
         if not df.empty:
             df.insert(0, "Equip", team_name)
@@ -131,38 +141,36 @@ def export(team_name, sex, category, players_df, staff_df):
 
     return saved
 
-def send_notification(files, team_name, sex, category):
+def send_notification(files, team_name):
     smtp_server = "smtp.gmail.com"
     smtp_port = 587
-    smtp_user = os.environ.get("SMTP_USER")
-    smtp_pass = os.environ.get("SMTP_PASS")
+    smtp_user = "volei.retransmissions@gmail.com"
+    smtp_pass = os.environ.get("SMTP_PASS")  # ← App Password a Render
     notif_to = "volei.retransmissions@gmail.com"
 
+    if not notif_to:
+        return False, "Sense adreça de correu."
     try:
         msg = EmailMessage()
-        msg["Subject"] = f"[{category} · {sex}] {team_name} – Informació per streaming"
+        msg["Subject"] = f"Nova inscripció: {team_name}"
         msg["From"] = smtp_user
         msg["To"] = notif_to
-        msg.set_content(
-            f"S'ha registrat informació per streaming de l'equip '{team_name}' "
-            f"({sex}, {category}). Adjunt l'Excel amb totes les dades."
-        )
+        msg.set_content("S'ha registrat una nova inscripció d'equip. Adjunt trobes l'Excel amb les dades.")
 
         for f in files:
-            if str(f).lower().endswith(".xlsx"):
-                try:
-                    with open(f, "rb") as fh:
-                        data = fh.read()
-                    msg.add_attachment(
-                        data,
-                        maintype="application",
-                        subtype="vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                        filename=os.path.basename(f),
-                    )
-                except Exception as e:
-                    st.warning(f"No s'ha pogut adjuntar {f}: {e}")
+            try:
+                with open(f, "rb") as fh:
+                    data = fh.read()
+                msg.add_attachment(
+                    data,
+                    maintype="application",
+                    subtype="vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    filename=os.path.basename(f),
+                )
+            except Exception as e:
+                st.warning(f"No s'ha pogut adjuntar {f}: {e}")
 
-        server = smtplib.SMTP(smtp_server, smtp_port)
+        server = smtplib.SMTP(smtp_server, int(smtp_port))
         server.starttls()
         server.login(smtp_user, smtp_pass)
         server.send_message(msg)
@@ -178,21 +186,6 @@ with col1:
 with col2:
     reset_btn = st.button("🧹 Reinicia formulari (nou equip)", use_container_width=True)
 
-# Plantilla Excel buida
-import io
-template_buf = io.BytesIO()
-with pd.ExcelWriter(template_buf, engine="openpyxl") as writer:
-    pd.DataFrame(columns=["Equip", "Sexe", "Categoria"]).to_excel(writer, sheet_name="Equip", index=False)
-    pd.DataFrame(columns=["Equip", "Sexe", "Categoria", "Nom", "Cognoms", "Número dorsal", "Nom del dorsal", "Posició"]).to_excel(writer, sheet_name="Jugadors", index=False)
-    pd.DataFrame(columns=["Equip", "Sexe", "Categoria", "Nom", "Cognoms", "Funció"]).to_excel(writer, sheet_name="Staff", index=False)
-template_buf.seek(0)
-st.download_button(
-    "⬇️ Descarrega plantilla Excel buida (3 pestanyes)",
-    data=template_buf,
-    file_name="plantilla_equip_voleibol.xlsx",
-    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-)
-
 if save_btn:
     if not validate_team(team_name):
         st.error("Cal indicar el **Nom de l'equip**.")
@@ -204,7 +197,7 @@ if save_btn:
                 for f in saved_files:
                     st.write("• ", f)
 
-                ok, msg = send_notification(saved_files, team_name, sex, category)
+                ok, msg = send_notification(saved_files, team_name)
                 if ok:
                     st.info(msg)
                 else:
@@ -219,3 +212,5 @@ if reset_btn:
     st.session_state.players_df = pd.DataFrame([{c: "" for c in player_cols}])
     st.session_state.staff_df = pd.DataFrame([{c: "" for c in staff_cols}])
     st.rerun()
+
+st.caption("💡 Consell: desa un equip i prem **Reinicia** per preparar un nou equip.")
