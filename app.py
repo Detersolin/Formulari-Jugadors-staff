@@ -29,7 +29,7 @@ st.caption("(* camps obligatoris)")
 # ---------- Taula jugadors ----------
 st.markdown("### 👥 Jugadors")
 PLAYER_POSITIONS = ["Col.locador", "Central", "Punta", "Oposat", "Lliure"]
-player_cols = ["Nom","Cognoms","Número dorsal","Nom del dorsal","Posició"]
+player_cols = ["Nom", "Cognoms", "Número dorsal", "Nom del dorsal", "Posició"]
 
 if "players_df" not in st.session_state:
     st.session_state.players_df = pd.DataFrame([{c: "" for c in player_cols}])
@@ -52,7 +52,7 @@ players_df = st.data_editor(
 
 # ---------- Taula staff ----------
 st.markdown("### 🧑‍💼 Staff")
-staff_cols = ["Nom","Cognoms","Funció"]
+staff_cols = ["Nom", "Cognoms", "Funció"]
 
 if "staff_df" not in st.session_state:
     st.session_state.staff_df = pd.DataFrame([{c: "" for c in staff_cols}])
@@ -96,7 +96,7 @@ def clean_df(df: pd.DataFrame) -> pd.DataFrame:
     mask = ~(df.fillna("").apply(lambda r: "".join(map(str, r)).strip(), axis=1) == "")
     return df.loc[mask].reset_index(drop=True)
 
-def export(team_name, sex, category, players_df, staff_df, export_xlsx=True, export_csv=True):
+def export(team_name, sex, category, players_df, staff_df):
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     base = f"{ts}_{slugify(team_name)}"
     saved = []
@@ -116,36 +116,22 @@ def export(team_name, sex, category, players_df, staff_df, export_xlsx=True, exp
         xlsx_path = OUTPUT_DIR / f"{base}.xlsx"
         with pd.ExcelWriter(xlsx_path, engine="openpyxl") as writer:
             pd.DataFrame(
-                {"Equip":[team_name], "Sexe":[sex], "Categoria":[category]}
+                {"Equip": [team_name], "Sexe": [sex], "Categoria": [category]}
             ).to_excel(writer, sheet_name="Equip", index=False)
             (players_df if not players_df.empty else pd.DataFrame(
-                columns=["Equip","Sexe","Categoria", *player_cols]
+                columns=["Equip", "Sexe", "Categoria", *player_cols]
             )).to_excel(writer, sheet_name="Jugadors", index=False)
             (staff_df if not staff_df.empty else pd.DataFrame(
-                columns=["Equip","Sexe","Categoria", *staff_cols]
+                columns=["Equip", "Sexe", "Categoria", *staff_cols]
             )).to_excel(writer, sheet_name="Staff", index=False)
         saved.append(str(xlsx_path))
     except Exception as e:
         st.error(f"Error exportant Excel: {e}")
         st.code(traceback.format_exc())
 
-    # CSV
-    try:
-        if not players_df.empty:
-            p_csv = OUTPUT_DIR / f"{base}_jugadors.csv"
-            players_df.to_csv(p_csv, index=False)
-            saved.append(str(p_csv))
-        if not staff_df.empty:
-            s_csv = OUTPUT_DIR / f"{base}_staff.csv"
-            staff_df.to_csv(s_csv, index=False)
-            saved.append(str(s_csv))
-    except Exception as e:
-        st.error(f"Error exportant CSV: {e}")
-        st.code(traceback.format_exc())
-
     return saved
 
-def send_notification(files):
+def send_notification(files, team_name, sex, category):
     smtp_server = "smtp.gmail.com"
     smtp_port = 587
     smtp_user = os.environ.get("SMTP_USER")
@@ -154,23 +140,27 @@ def send_notification(files):
 
     try:
         msg = EmailMessage()
-        msg["Subject"] = "Nova informació d'equip per streaming"
+        msg["Subject"] = f"[{category} · {sex}] {team_name} – Informació per streaming"
         msg["From"] = smtp_user
         msg["To"] = notif_to
-        msg.set_content("Nova informació registrada. Adjuntes les exportacions.")
+        msg.set_content(
+            f"S'ha registrat informació per streaming de l'equip '{team_name}' "
+            f"({sex}, {category}). Adjunt l'Excel amb totes les dades."
+        )
 
         for f in files:
-            try:
-                with open(f, "rb") as fh:
-                    data = fh.read()
-                msg.add_attachment(
-                    data,
-                    maintype="application",
-                    subtype="octet-stream",
-                    filename=os.path.basename(f),
-                )
-            except Exception as e:
-                st.warning(f"No s'ha pogut adjuntar {f}: {e}")
+            if str(f).lower().endswith(".xlsx"):
+                try:
+                    with open(f, "rb") as fh:
+                        data = fh.read()
+                    msg.add_attachment(
+                        data,
+                        maintype="application",
+                        subtype="vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        filename=os.path.basename(f),
+                    )
+                except Exception as e:
+                    st.warning(f"No s'ha pogut adjuntar {f}: {e}")
 
         server = smtplib.SMTP(smtp_server, smtp_port)
         server.starttls()
@@ -182,19 +172,19 @@ def send_notification(files):
         return False, f"No s'ha pogut enviar el correu: {e}"
 
 # ---------- Accions ----------
-col1, col2 = st.columns([1,1])
+col1, col2 = st.columns([1, 1])
 with col1:
     save_btn = st.button("💾 Desa equip", type="primary", use_container_width=True)
 with col2:
     reset_btn = st.button("🧹 Reinicia formulari (nou equip)", use_container_width=True)
 
-# Plantilla Excel buida (3 pestanyes)
+# Plantilla Excel buida
 import io
 template_buf = io.BytesIO()
 with pd.ExcelWriter(template_buf, engine="openpyxl") as writer:
-    pd.DataFrame(columns=["Equip","Sexe","Categoria"]).to_excel(writer, sheet_name="Equip", index=False)
-    pd.DataFrame(columns=["Equip","Sexe","Categoria","Nom","Cognoms","Número dorsal","Nom del dorsal","Posició"]).to_excel(writer, sheet_name="Jugadors", index=False)
-    pd.DataFrame(columns=["Equip","Sexe","Categoria","Nom","Cognoms","Funció"]).to_excel(writer, sheet_name="Staff", index=False)
+    pd.DataFrame(columns=["Equip", "Sexe", "Categoria"]).to_excel(writer, sheet_name="Equip", index=False)
+    pd.DataFrame(columns=["Equip", "Sexe", "Categoria", "Nom", "Cognoms", "Número dorsal", "Nom del dorsal", "Posició"]).to_excel(writer, sheet_name="Jugadors", index=False)
+    pd.DataFrame(columns=["Equip", "Sexe", "Categoria", "Nom", "Cognoms", "Funció"]).to_excel(writer, sheet_name="Staff", index=False)
 template_buf.seek(0)
 st.download_button(
     "⬇️ Descarrega plantilla Excel buida (3 pestanyes)",
@@ -208,17 +198,13 @@ if save_btn:
         st.error("Cal indicar el **Nom de l'equip**.")
     else:
         try:
-            saved_files = export(
-                team_name, sex, category,
-                players_df, staff_df,
-                export_xlsx=True, export_csv=True
-            )
+            saved_files = export(team_name, sex, category, players_df, staff_df)
             if saved_files:
                 st.success("Dades desades correctament:")
                 for f in saved_files:
                     st.write("• ", f)
 
-                ok, msg = send_notification(saved_files)
+                ok, msg = send_notification(saved_files, team_name, sex, category)
                 if ok:
                     st.info(msg)
                 else:
