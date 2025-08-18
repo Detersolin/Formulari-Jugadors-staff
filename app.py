@@ -26,18 +26,33 @@ st.title("ℹ️ Informació equips per l’streaming del partit")
 
 # ---------- Informació de l’equip ----------
 st.markdown("### 📝 Informació de l’equip")
+
 team_name = st.text_input("Nom de l'equip*", placeholder="Ex.: Club Vòlei Girona")
-sex = st.selectbox("Sexe*", ["Masculí", "Femení"])
-category = st.selectbox(
-    "Categoria*",
-    ["SM", "Lliga Hiberdrola", "SM2", "SF2", "1a Nacional"]
+
+sex = st.radio(
+    "Sexe",
+    ["Masculí", "Femení"],
+    horizontal=True,
 )
+
+category = st.radio(
+    "Categoria",
+    ["SM", "Lliga Hiberdrola", "SM2", "SF2", "1a Nacional"],
+    horizontal=True,
+)
+
 st.caption("(* camps obligatoris)")
+
+# ---------- Pista per als desplegables de la taula ----------
+st.info(
+    "Per omplir **Posició** i **Funció**, clica la cel·la i fes servir el desplegable ▾.",
+    icon="➡️",
+)
 
 # ---------- Jugadors ----------
 st.markdown("### 👥 Jugadors")
 
-PLAYER_POSITIONS = ["Col·locador", "Central", "Punta", "Oposat", "Lliure"]
+PLAYER_POSITIONS = ["— Tria —", "Col·locador", "Central", "Punta", "Oposat", "Lliure"]
 player_cols = ["Nom", "Cognoms", "Número dorsal", "Nom del dorsal", "Posició"]
 
 if "players_df" not in st.session_state:
@@ -52,16 +67,29 @@ players_df = st.data_editor(
         "Cognoms": cc.TextColumn("Cognoms"),
         "Número dorsal": cc.TextColumn("Número dorsal", help="Ex.: 7"),
         "Nom del dorsal": cc.TextColumn("Nom del dorsal"),
-        "Posició": cc.SelectboxColumn("Posició", options=PLAYER_POSITIONS),
+        "Posició": cc.SelectboxColumn(
+            "Posició ▾",
+            options=PLAYER_POSITIONS,
+            default="— Tria —",
+        ),
     },
     use_container_width=True,
     hide_index=True,
-    key="players_editor"
+    key="players_editor",
 )
 
 # ---------- Staff ----------
 st.markdown("### 🧑‍💼 Staff")
 
+STAFF_ROLES = [
+    "— Tria —",
+    "Entrenador principal",
+    "Segon entrenador",
+    "Preparador físic",
+    "Fisioterapeuta",
+    "Delegat",
+    "Altres",
+]
 staff_cols = ["Nom", "Cognoms", "Funció"]
 
 if "staff_df" not in st.session_state:
@@ -75,20 +103,14 @@ staff_df = st.data_editor(
         "Nom": cc.TextColumn("Nom"),
         "Cognoms": cc.TextColumn("Cognoms"),
         "Funció": cc.SelectboxColumn(
-            "Funció",
-            options=[
-                "Entrenador principal",
-                "Segon entrenador",
-                "Preparador físic",
-                "Fisioterapeuta",
-                "Delegat",
-                "Altres",
-            ],
+            "Funció ▾",
+            options=STAFF_ROLES,
+            default="— Tria —",
         ),
     },
     use_container_width=True,
     hide_index=True,
-    key="staff_editor"
+    key="staff_editor",
 )
 
 # ---------- Utilitats ----------
@@ -100,11 +122,49 @@ def slugify(text: str) -> str:
 def validate_team(team_name: str) -> bool:
     return bool(team_name and team_name.strip())
 
+def non_empty_rows_mask(df: pd.DataFrame) -> pd.Series:
+    """Retorna una màscara de files amb alguna dada (no totes buides)."""
+    if df is None or df.empty:
+        return pd.Series([], dtype=bool)
+    return ~(df.fillna("").apply(lambda r: "".join(map(str, r)).strip(), axis=1) == "")
+
+def validate_dropdowns(players_df: pd.DataFrame, staff_df: pd.DataFrame) -> list[str]:
+    """
+    Comprova que, a les files amb alguna dada,
+    - 'Posició' (jugadors) i 'Funció' (staff) no siguin '— Tria —' ni buit.
+    Retorna una llista de missatges d'error; si està buida, la validació passa.
+    """
+    errors: list[str] = []
+
+    # Jugadors
+    if players_df is not None and not players_df.empty:
+        m = non_empty_rows_mask(players_df)
+        df = players_df.loc[m].copy()
+        if not df.empty:
+            invalid = df[(df["Posició"].fillna("").isin(["", "— Tria —"]))]
+            if not invalid.empty:
+                idxs = (invalid.index + 1).tolist()  # +1 per mostrar índex humà
+                errors.append(f"Jugadors: falta **Posició** a les files {idxs}.")
+
+    # Staff
+    if staff_df is not None and not staff_df.empty:
+        m = non_empty_rows_mask(staff_df)
+        df = staff_df.loc[m].copy()
+        if not df.empty:
+            invalid = df[(df["Funció"].fillna("").isin(["", "— Tria —"]))]
+            if not invalid.empty:
+                idxs = (invalid.index + 1).tolist()
+                errors.append(f"Staff: falta **Funció** a les files {idxs}.")
+
+    return errors
+
 def clean_df(df: pd.DataFrame) -> pd.DataFrame:
+    """Elimina files totalment buides i normalitza '— Tria —' a buit."""
     if df.empty:
         return df
-    mask = ~(df.fillna("").apply(lambda r: "".join(map(str, r)).strip(), axis=1) == "")
-    return df.loc[mask].reset_index(drop=True)
+    df = df.replace({"— Tria —": ""})
+    m = non_empty_rows_mask(df)
+    return df.loc[m].reset_index(drop=True)
 
 def export(team_name, sex, category, players_df, staff_df):
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -141,36 +201,38 @@ def export(team_name, sex, category, players_df, staff_df):
 
     return saved
 
-def send_notification(files, team_name):
+def send_notification(files, team_name, sex, category):
     smtp_server = "smtp.gmail.com"
     smtp_port = 587
-    smtp_user = "volei.retransmissions@gmail.com"
-    smtp_pass = os.environ.get("SMTP_PASS")  # ← App Password a Render
+    smtp_user = os.environ.get("SMTP_USER") or "volei.retransmissions@gmail.com"
+    smtp_pass = os.environ.get("SMTP_PASS")  # App Password a Render
     notif_to = "volei.retransmissions@gmail.com"
 
-    if not notif_to:
-        return False, "Sense adreça de correu."
     try:
         msg = EmailMessage()
-        msg["Subject"] = f"Nova inscripció: {team_name}"
+        msg["Subject"] = f"[{category} · {sex}] {team_name} – Informació per streaming"
         msg["From"] = smtp_user
         msg["To"] = notif_to
-        msg.set_content("S'ha registrat una nova inscripció d'equip. Adjunt trobes l'Excel amb les dades.")
+        msg.set_content(
+            f"S'ha registrat informació per streaming de l'equip '{team_name}' "
+            f"({sex}, {category}). Adjunt l'Excel amb totes les dades."
+        )
 
         for f in files:
-            try:
-                with open(f, "rb") as fh:
-                    data = fh.read()
-                msg.add_attachment(
-                    data,
-                    maintype="application",
-                    subtype="vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    filename=os.path.basename(f),
-                )
-            except Exception as e:
-                st.warning(f"No s'ha pogut adjuntar {f}: {e}")
+            if str(f).lower().endswith(".xlsx"):
+                try:
+                    with open(f, "rb") as fh:
+                        data = fh.read()
+                    msg.add_attachment(
+                        data,
+                        maintype="application",
+                        subtype="vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        filename=os.path.basename(f),
+                    )
+                except Exception as e:
+                    st.warning(f"No s'ha pogut adjuntar {f}: {e}")
 
-        server = smtplib.SMTP(smtp_server, int(smtp_port))
+        server = smtplib.SMTP(smtp_server, smtp_port)
         server.starttls()
         server.login(smtp_user, smtp_pass)
         server.send_message(msg)
@@ -187,9 +249,17 @@ with col2:
     reset_btn = st.button("🧹 Reinicia formulari (nou equip)", use_container_width=True)
 
 if save_btn:
+    # Validació mínima
     if not validate_team(team_name):
         st.error("Cal indicar el **Nom de l'equip**.")
     else:
+        # Validació de desplegables
+        errors = validate_dropdowns(players_df, staff_df)
+        if errors:
+            for e in errors:
+                st.error(e)
+            st.stop()  # Atura el flux: no exportem ni enviem res
+
         try:
             saved_files = export(team_name, sex, category, players_df, staff_df)
             if saved_files:
@@ -197,7 +267,7 @@ if save_btn:
                 for f in saved_files:
                     st.write("• ", f)
 
-                ok, msg = send_notification(saved_files, team_name)
+                ok, msg = send_notification(saved_files, team_name, sex, category)
                 if ok:
                     st.info(msg)
                 else:
@@ -213,4 +283,4 @@ if reset_btn:
     st.session_state.staff_df = pd.DataFrame([{c: "" for c in staff_cols}])
     st.rerun()
 
-st.caption("💡 Consell: desa un equip i prem **Reinicia** per preparar un nou equip.")
+st.caption("💡 Consell: completa els desplegables ▾, desa l’equip i prem **Reinicia** per preparar un nou equip.")
