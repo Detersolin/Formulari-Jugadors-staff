@@ -22,6 +22,7 @@ def show_logo():
     candidates = []
     if env_path:
         candidates.append(Path(env_path))
+
     candidates += [
         BASE_DIR / "static" / "logo.png",
         BASE_DIR / "static" / "logo.jpg",
@@ -32,6 +33,7 @@ def show_logo():
         BASE_DIR / "logo.jpeg",
         BASE_DIR / "Logo VR Bo.png",
     ]
+
     for p in candidates:
         try:
             if p.exists():
@@ -39,7 +41,9 @@ def show_logo():
                 return
         except Exception:
             pass
+
     st.warning("No s'ha trobat el logo. Posa'l com **static/logo.png** o defineix **LOGO_PATH** amb el camí complet al fitxer.")
+
 show_logo()
 
 # ---------- Títol ----------
@@ -49,18 +53,21 @@ st.title("ℹ️ Informació equips per l’streaming del partit")
 st.markdown("### 📝 Informació de l’equip")
 
 team_name = st.text_input("Nom de l'equip*", placeholder="Ex.: Club Vòlei Girona")
-
 sex = st.radio("Sexe", ["Masculí", "Femení"], horizontal=True)
 category = st.radio("Categoria", ["SM", "Lliga Hiberdrola", "SM2", "SF2", "1a Nacional"], horizontal=True)
 
 st.caption("(* camps obligatoris)")
 
-# ---------- Pista per als desplegables ----------
+# ---------- Pista per als desplegables de la taula ----------
 st.info("Per omplir **Posició** i **Funció**, clica la cel·la i fes servir el desplegable ▾.", icon="➡️")
+
+# ---------- Constants ----------
+PLACEHOLDER = "— Tria —"
 
 # ---------- Jugadors ----------
 st.markdown("### 👥 Jugadors")
-PLAYER_POSITIONS = ["— Tria —", "Col·locador", "Central", "Punta", "Oposat", "Lliure"]
+
+PLAYER_POSITIONS = [PLACEHOLDER, "Col·locador", "Central", "Punta", "Oposat", "Lliure"]
 player_cols = ["Nom", "Cognoms", "Número dorsal", "Nom del dorsal", "Posició"]
 
 if "players_df" not in st.session_state:
@@ -75,16 +82,27 @@ players_df = st.data_editor(
         "Cognoms": cc.TextColumn("Cognoms"),
         "Número dorsal": cc.TextColumn("Número dorsal", help="Ex.: 7"),
         "Nom del dorsal": cc.TextColumn("Nom del dorsal"),
-        "Posició": cc.SelectboxColumn("Posició ▾", options=PLAYER_POSITIONS, default="— Tria —"),
+        "Posició": cc.SelectboxColumn("Posició ▾", options=PLAYER_POSITIONS, default=PLACEHOLDER),
     },
     use_container_width=True,
     hide_index=True,
     key="players_editor",
 )
+# guarda el que s'ha editat
+st.session_state.players_df = players_df
 
 # ---------- Staff ----------
 st.markdown("### 🧑‍💼 Staff")
-STAFF_ROLES = ["— Tria —", "Entrenador principal", "Segon entrenador", "Preparador físic", "Fisioterapeuta", "Delegat", "Altres"]
+
+STAFF_ROLES = [
+    PLACEHOLDER,
+    "Entrenador principal",
+    "Segon entrenador",
+    "Preparador físic",
+    "Fisioterapeuta",
+    "Delegat",
+    "Altres",
+]
 staff_cols = ["Nom", "Cognoms", "Funció"]
 
 if "staff_df" not in st.session_state:
@@ -97,12 +115,14 @@ staff_df = st.data_editor(
     column_config={
         "Nom": cc.TextColumn("Nom"),
         "Cognoms": cc.TextColumn("Cognoms"),
-        "Funció": cc.SelectboxColumn("Funció ▾", options=STAFF_ROLES, default="— Tria —"),
+        "Funció": cc.SelectboxColumn("Funció ▾", options=STAFF_ROLES, default=PLACEHOLDER),
     },
     use_container_width=True,
     hide_index=True,
     key="staff_editor",
 )
+# guarda el que s'ha editat
+st.session_state.staff_df = staff_df
 
 # ---------- Utilitats ----------
 def slugify(text: str) -> str:
@@ -114,20 +134,21 @@ def validate_team(team_name: str) -> bool:
     return bool(team_name and team_name.strip())
 
 def non_empty_rows_mask(df: pd.DataFrame) -> pd.Series:
+    """Fila no buida si algun camp (després de normalitzar) té text."""
     if df is None or df.empty:
         return pd.Series([], dtype=bool)
-    # Considera buida una fila si tots els camps són buit o “— Tria —”
-    norm = df.fillna("").replace({"— Tria —": ""})
+    norm = df.fillna("").replace({PLACEHOLDER: ""})
     return norm.apply(lambda r: any(str(x).strip() != "" for x in r), axis=1)
 
 def validate_dropdowns(players_df: pd.DataFrame, staff_df: pd.DataFrame) -> list[str]:
+    """Si una fila té alguna dada, 'Posició'/'Funció' no poden quedar en blanc ni en PLACEHOLDER."""
     errors: list[str] = []
-    # Jugadors: si la fila té alguna dada, Posició no pot ser buit ni “— Tria —”
+    # Jugadors
     if players_df is not None and not players_df.empty:
         m = non_empty_rows_mask(players_df)
         df = players_df.loc[m].copy()
         if not df.empty:
-            invalid = df[df["Posició"].fillna("").isin(["", "— Tria —"])]
+            invalid = df[df["Posició"].fillna("").isin(["", PLACEHOLDER])]
             if not invalid.empty:
                 idxs = (invalid.index + 1).tolist()
                 errors.append(f"Jugadors: falta **Posició** a les files {idxs}.")
@@ -136,28 +157,38 @@ def validate_dropdowns(players_df: pd.DataFrame, staff_df: pd.DataFrame) -> list
         m = non_empty_rows_mask(staff_df)
         df = staff_df.loc[m].copy()
         if not df.empty:
-            invalid = df[df["Funció"].fillna("").isin(["", "— Tria —"])]
+            invalid = df[df["Funció"].fillna("").isin(["", PLACEHOLDER])]
             if not invalid.empty:
                 idxs = (invalid.index + 1).tolist()
                 errors.append(f"Staff: falta **Funció** a les files {idxs}.")
     return errors
 
-def clean_df(df: pd.DataFrame) -> pd.DataFrame:
-    """Elimina files totalment buides i normalitza '— Tria —' a buit (no es perd cap fila amb dades)."""
-    if df.empty:
-        return df
-    df2 = df.copy().fillna("").replace({"— Tria —": ""})
-    mask = df2.apply(lambda r: any(str(x).strip() != "" for x in r), axis=1)
-    return df2.loc[mask].reset_index(drop=True)
+def clean_players_df(df: pd.DataFrame) -> pd.DataFrame:
+    """Conserva una fila si algun camp de jugadors té valor real (no buit ni PLACEHOLDER)."""
+    cols = ["Nom", "Cognoms", "Número dorsal", "Nom del dorsal", "Posició"]
+    if df is None or df.empty:
+        return pd.DataFrame(columns=cols)
+    df2 = df.copy().fillna("").replace({PLACEHOLDER: ""})
+    keep = df2[cols].apply(lambda r: any(str(x).strip() != "" for x in r), axis=1)
+    return df2.loc[keep].reset_index(drop=True)
+
+def clean_staff_df(df: pd.DataFrame) -> pd.DataFrame:
+    """Conserva una fila si algun camp de staff té valor real (no buit ni PLACEHOLDER)."""
+    cols = ["Nom", "Cognoms", "Funció"]
+    if df is None or df.empty:
+        return pd.DataFrame(columns=cols)
+    df2 = df.copy().fillna("").replace({PLACEHOLDER: ""})
+    keep = df2[cols].apply(lambda r: any(str(x).strip() != "" for x in r), axis=1)
+    return df2.loc[keep].reset_index(drop=True)
 
 def export(team_name, sex, category, players_df, staff_df):
-    # Nom del fitxer amb el nom de l’equip al davant
+    # nom del fitxer: <equip>_<timestamp>.xlsx
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     base = f"{slugify(team_name)}_{ts}"
     saved = []
 
-    players_df = clean_df(players_df.copy())
-    staff_df = clean_df(staff_df.copy())
+    players_df = clean_players_df(players_df)
+    staff_df = clean_staff_df(staff_df)
 
     # Afegir metadades de l’equip
     for df in (players_df, staff_df):
@@ -166,7 +197,6 @@ def export(team_name, sex, category, players_df, staff_df):
             df.insert(1, "Sexe", sex)
             df.insert(2, "Categoria", category)
 
-    # Excel
     try:
         xlsx_path = OUTPUT_DIR / f"{base}.xlsx"
         with pd.ExcelWriter(xlsx_path, engine="openpyxl") as writer:
@@ -208,12 +238,11 @@ def send_notification(files, team_name, sex, category):
                 try:
                     with open(f, "rb") as fh:
                         data = fh.read()
-                    # Adjunta amb el mateix nom (ja porta el nom de l’equip)
                     msg.add_attachment(
                         data,
                         maintype="application",
                         subtype="vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                        filename=os.path.basename(f),
+                        filename=os.path.basename(f),  # ja inclou el nom de l'equip
                     )
                 except Exception as e:
                     st.warning(f"No s'ha pogut adjuntar {f}: {e}")
@@ -243,7 +272,7 @@ with col1:
         "💾 Desa equip",
         type="primary",
         use_container_width=True,
-        disabled=not (team_name or "").strip(),
+        disabled=not (team_name or "").strip(),  # desactivat si no hi ha nom
     )
 with col2:
     reset_btn = st.button("🧹 Reinicia formulari (nou equip)", use_container_width=True)
